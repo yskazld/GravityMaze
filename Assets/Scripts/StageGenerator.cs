@@ -4,6 +4,7 @@ using UnityEngine;
 public class StageGenerator : MonoBehaviour
 {
     public GridManager grid;
+    public Camera mainCamera;
     public GameObject wallPrefab;
     public GameObject boundaryWallPrefab;
     public GameObject insideWallPrefab;
@@ -14,6 +15,12 @@ public class StageGenerator : MonoBehaviour
 
     public StageData stageData;
     private const float BoundaryWallHeight = 0.5f;
+    private const int BaseStageSize = 3;
+
+    [Header("Camera Setup")]
+    public Vector3 baseCameraPosition = new Vector3(1f, 13f, 0f);
+    public float baseCameraXRotation = 90f;
+    public float cameraHeightPerCell = 2f;
 
     private void Awake()
     {
@@ -44,6 +51,7 @@ public class StageGenerator : MonoBehaviour
         grid.height = stageData.height;
         grid.ClearGoalCell();
         grid.ClearOccupants();
+        ApplyCameraSetup();
 
         // clear existing objects
         foreach (var go in FindObjectsOfType<GameObject>())
@@ -190,5 +198,37 @@ public class StageGenerator : MonoBehaviour
         }
 
         return clone;
+    }
+
+    private void ApplyCameraSetup()
+    {
+        if (mainCamera == null)
+        {
+            mainCamera = Camera.main;
+        }
+
+        if (mainCamera == null || stageData == null)
+        {
+            return;
+        }
+
+        int largestDimension = Mathf.Max(stageData.width, stageData.height);
+        float yOffset = Mathf.Max(0, largestDimension - BaseStageSize) * cameraHeightPerCell;
+        Vector3 stageCenter = GetStageCenterWorld(stageData.width, stageData.height);
+        Vector3 targetPosition = new Vector3(stageCenter.x, baseCameraPosition.y + yOffset, stageCenter.z);
+
+        Transform cameraTransform = mainCamera.transform;
+        cameraTransform.position = targetPosition;
+        cameraTransform.rotation = Quaternion.Euler(baseCameraXRotation, 0f, 0f);
+
+        GravityViewController gravityView = FindObjectOfType<GravityViewController>();
+        gravityView?.RefreshBasePoseFromCamera();
+    }
+
+    private Vector3 GetStageCenterWorld(int width, int height)
+    {
+        float centerX = grid.origin.x + ((width - 1) * grid.cellSize * 0.5f);
+        float centerZ = grid.origin.y + ((height - 1) * grid.cellSize * 0.5f);
+        return new Vector3(centerX, 0f, centerZ);
     }
 }

@@ -3,219 +3,94 @@ using UnityEngine;
 
 public static class StageCatalog
 {
+    private static readonly List<StageDefinition> Definitions = CreateDefinitions();
+
+    private sealed class StageDefinition
+    {
+        public int targetMoves;
+        public string[] rows;
+        public EnemySpec[] enemies;
+    }
+
+    private sealed class EnemySpec
+    {
+        public Vector2Int cell;
+        public Vector2Int moveDirection;
+        public EnemyType type;
+    }
+
     public static StageData GetStage(int stageId)
     {
         int clampedId = Mathf.Clamp(stageId, 1, StageSelectionManager.StageCount);
-        StageData data = BuildStage(clampedId);
-        data.stageId = clampedId;
-        return EnsurePlayable(data);
+        StageData data = BuildStage(Definitions[clampedId - 1], clampedId);
+        return FinalizeStage(data);
     }
 
-    private static StageData BuildStage(int stageId)
+    private static StageData BuildStage(StageDefinition definition, int stageId)
     {
-        if (stageId <= 10)
+        int size = definition.rows.Length;
+        StageData data = new StageData
         {
-            return BuildFromTemplates(stageId, 3, Create3x3Templates(), 2);
-        }
+            stageId = stageId,
+            width = size,
+            height = size,
+            targetMoveCount = definition.targetMoves
+        };
 
-        if (stageId <= 30)
+        Dictionary<Vector2Int, EnemySpec> enemyMap = new Dictionary<Vector2Int, EnemySpec>();
+        if (definition.enemies != null)
         {
-            return BuildFromTemplates(stageId - 10, 4, Create4x4Templates(), 2);
-        }
-
-        return BuildFromTemplates(stageId - 30, 5, Create5x5Templates(), 2);
-    }
-
-    private static StageData BuildFromTemplates(int localIndex, int size, List<StageData> templates, int variantsPerTemplate)
-    {
-        int templateIndex = (localIndex - 1) / variantsPerTemplate;
-        int variantIndex = (localIndex - 1) % variantsPerTemplate;
-        StageData baseData = CloneStageData(templates[templateIndex]);
-        ApplyVariant(baseData, size, variantIndex);
-        baseData.width = size;
-        baseData.height = size;
-        return baseData;
-    }
-
-    private static void ApplyVariant(StageData stage, int size, int variantIndex)
-    {
-        bool mirrorX = (variantIndex & 1) == 1;
-        int rotations = variantIndex / 2;
-
-        if (mirrorX)
-        {
-            stage.playerStart = MirrorX(stage.playerStart, size);
-            stage.goalPosition = MirrorX(stage.goalPosition, size);
-            TransformPositions(stage.wallPositions, size, MirrorX);
-            TransformPositions(stage.boxPositions, size, MirrorX);
-            foreach (EnemyData enemy in stage.enemies)
+            foreach (EnemySpec enemy in definition.enemies)
             {
-                enemy.startPosition = MirrorX(enemy.startPosition, size);
-                enemy.moveDirection = new Vector2Int(-enemy.moveDirection.x, enemy.moveDirection.y);
+                enemyMap[enemy.cell] = enemy;
             }
         }
 
-        for (int i = 0; i < rotations; i++)
+        for (int rowIndex = 0; rowIndex < size; rowIndex++)
         {
-            stage.playerStart = Rotate90(stage.playerStart, size);
-            stage.goalPosition = Rotate90(stage.goalPosition, size);
-            TransformPositions(stage.wallPositions, size, Rotate90);
-            TransformPositions(stage.boxPositions, size, Rotate90);
-            foreach (EnemyData enemy in stage.enemies)
+            string row = definition.rows[rowIndex];
+            for (int x = 0; x < size; x++)
             {
-                enemy.startPosition = Rotate90(enemy.startPosition, size);
-                enemy.moveDirection = Rotate90Direction(enemy.moveDirection);
+                Vector2Int cell = new Vector2Int(x, size - 1 - rowIndex);
+                switch (row[x])
+                {
+                    case '1':
+                        data.wallPositions.Add(cell);
+                        break;
+                    case '2':
+                        data.boxPositions.Add(cell);
+                        break;
+                    case '3':
+                        data.goalPosition = cell;
+                        break;
+                    case '4':
+                        data.playerStart = cell;
+                        break;
+                    case '5':
+                    case '6':
+                        EnemyType enemyType = row[x] == '6' ? EnemyType.Diagonal : EnemyType.Orthogonal;
+                        EnemySpec spec = enemyMap.TryGetValue(cell, out EnemySpec configured)
+                            ? configured
+                            : CreateEnemy(cell.x, cell.y, enemyType == EnemyType.Diagonal ? new Vector2Int(1, 1) : Vector2Int.left, enemyType);
+                        data.enemies.Add(new EnemyData
+                        {
+                            type = spec.type,
+                            startPosition = cell,
+                            moveDirection = spec.moveDirection
+                        });
+                        break;
+                }
             }
-        }
-    }
-
-    private static void TransformPositions(List<Vector2Int> positions, int size, System.Func<Vector2Int, int, Vector2Int> transform)
-    {
-        for (int i = 0; i < positions.Count; i++)
-        {
-            positions[i] = transform(positions[i], size);
-        }
-    }
-
-    private static Vector2Int MirrorX(Vector2Int cell, int size)
-    {
-        return new Vector2Int(size - 1 - cell.x, cell.y);
-    }
-
-    private static Vector2Int Rotate90(Vector2Int cell, int size)
-    {
-        return new Vector2Int(size - 1 - cell.y, cell.x);
-    }
-
-    private static Vector2Int Rotate90Direction(Vector2Int direction)
-    {
-        return new Vector2Int(-direction.y, direction.x);
-    }
-
-    private static StageData CloneStageData(StageData source)
-    {
-        StageData clone = new StageData();
-        clone.stageId = source.stageId;
-        clone.width = source.width;
-        clone.height = source.height;
-        clone.seed = source.seed;
-        clone.playerStart = source.playerStart;
-        clone.goalPosition = source.goalPosition;
-        clone.targetMoveCount = source.targetMoveCount;
-
-        foreach (Vector2Int wall in source.wallPositions)
-        {
-            clone.wallPositions.Add(wall);
-        }
-
-        foreach (Vector2Int box in source.boxPositions)
-        {
-            clone.boxPositions.Add(box);
-        }
-
-        foreach (EnemyData enemy in source.enemies)
-        {
-            clone.enemies.Add(new EnemyData
-            {
-                type = enemy.type,
-                startPosition = enemy.startPosition,
-                moveDirection = enemy.moveDirection
-            });
-        }
-
-        return clone;
-    }
-
-    private static List<StageData> Create3x3Templates()
-    {
-        return new List<StageData>
-        {
-            CreateStageTemplate(3, new Vector2Int(0, 0), new Vector2Int(2, 2), null, new[] { new Vector2Int(1, 0) }, null, 4),
-            CreateStageTemplate(3, new Vector2Int(0, 1), new Vector2Int(2, 2), new[] { new Vector2Int(1, 0) }, new[] { new Vector2Int(2, 0) }, null, 5),
-            CreateStageTemplate(3, new Vector2Int(0, 0), new Vector2Int(1, 2), new[] { new Vector2Int(1, 1) }, new[] { new Vector2Int(2, 0), new Vector2Int(2, 1) }, null, 5),
-            CreateStageTemplate(3, new Vector2Int(1, 0), new Vector2Int(2, 2), new[] { new Vector2Int(0, 1), new Vector2Int(1, 1) }, new[] { new Vector2Int(2, 0) }, null, 6),
-            CreateStageTemplate(3, new Vector2Int(0, 2), new Vector2Int(2, 1), new[] { new Vector2Int(1, 0) }, new[] { new Vector2Int(0, 1), new Vector2Int(2, 2) }, null, 5)
-        };
-    }
-
-    private static List<StageData> Create4x4Templates()
-    {
-        return new List<StageData>
-        {
-            CreateStageTemplate(4, new Vector2Int(0, 0), new Vector2Int(3, 3), new[] { new Vector2Int(1, 1), new Vector2Int(2, 1) }, new[] { new Vector2Int(3, 0), new Vector2Int(0, 2), new Vector2Int(2, 3) }, null, 7),
-            CreateStageTemplate(4, new Vector2Int(0, 1), new Vector2Int(3, 2), new[] { new Vector2Int(1, 0), new Vector2Int(1, 2), new Vector2Int(2, 2) }, new[] { new Vector2Int(3, 0), new Vector2Int(0, 3), new Vector2Int(2, 0), new Vector2Int(3, 1) }, null, 8),
-            CreateStageTemplate(4, new Vector2Int(1, 0), new Vector2Int(3, 3), new[] { new Vector2Int(0, 2), new Vector2Int(2, 1) }, new[] { new Vector2Int(0, 1), new Vector2Int(3, 0), new Vector2Int(1, 3) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 1), Vector2Int.left) }, 8),
-            CreateStageTemplate(4, new Vector2Int(0, 0), new Vector2Int(2, 3), new[] { new Vector2Int(1, 1), new Vector2Int(3, 1), new Vector2Int(2, 2), new Vector2Int(0, 2) }, new[] { new Vector2Int(3, 0), new Vector2Int(2, 0), new Vector2Int(1, 3), new Vector2Int(3, 2) }, null, 9),
-            CreateStageTemplate(4, new Vector2Int(1, 1), new Vector2Int(3, 3), new[] { new Vector2Int(0, 2), new Vector2Int(1, 3), new Vector2Int(2, 1) }, new[] { new Vector2Int(3, 0), new Vector2Int(0, 0), new Vector2Int(2, 3) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 1), Vector2Int.down) }, 8),
-            CreateStageTemplate(4, new Vector2Int(0, 2), new Vector2Int(3, 0), new[] { new Vector2Int(1, 1), new Vector2Int(2, 2), new Vector2Int(0, 1) }, new[] { new Vector2Int(1, 0), new Vector2Int(3, 2), new Vector2Int(2, 3), new Vector2Int(0, 3) }, null, 8),
-            CreateStageTemplate(4, new Vector2Int(1, 0), new Vector2Int(2, 3), new[] { new Vector2Int(0, 1), new Vector2Int(2, 1), new Vector2Int(3, 2) }, new[] { new Vector2Int(3, 0), new Vector2Int(0, 2), new Vector2Int(1, 3) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 2), Vector2Int.left) }, 8),
-            CreateStageTemplate(4, new Vector2Int(0, 0), new Vector2Int(3, 2), new[] { new Vector2Int(1, 2), new Vector2Int(2, 1), new Vector2Int(2, 3) }, new[] { new Vector2Int(1, 0), new Vector2Int(3, 0), new Vector2Int(0, 3), new Vector2Int(3, 3) }, null, 9),
-            CreateStageTemplate(4, new Vector2Int(1, 1), new Vector2Int(3, 3), new[] { new Vector2Int(0, 2), new Vector2Int(2, 2), new Vector2Int(3, 1), new Vector2Int(1, 3) }, new[] { new Vector2Int(0, 0), new Vector2Int(2, 0), new Vector2Int(3, 2) }, null, 9),
-            CreateStageTemplate(4, new Vector2Int(0, 1), new Vector2Int(2, 3), new[] { new Vector2Int(1, 0), new Vector2Int(2, 2), new Vector2Int(3, 1) }, new[] { new Vector2Int(0, 3), new Vector2Int(1, 2), new Vector2Int(3, 0), new Vector2Int(2, 0) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 3), Vector2Int.left) }, 9)
-        };
-    }
-
-    private static List<StageData> Create5x5Templates()
-    {
-        return new List<StageData>
-        {
-            CreateStageTemplate(5, new Vector2Int(0, 0), new Vector2Int(4, 4), new[] { new Vector2Int(1, 1), new Vector2Int(3, 1), new Vector2Int(2, 2), new Vector2Int(1, 3) }, new[] { new Vector2Int(4, 0), new Vector2Int(0, 3), new Vector2Int(3, 4), new Vector2Int(2, 0) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 2), Vector2Int.left) }, 10),
-            CreateStageTemplate(5, new Vector2Int(0, 1), new Vector2Int(4, 3), new[] { new Vector2Int(1, 0), new Vector2Int(1, 2), new Vector2Int(3, 2), new Vector2Int(2, 3), new Vector2Int(4, 1) }, new[] { new Vector2Int(4, 0), new Vector2Int(0, 4), new Vector2Int(2, 0), new Vector2Int(3, 4), new Vector2Int(1, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 1), Vector2Int.down) }, 10),
-            CreateStageTemplate(5, new Vector2Int(1, 0), new Vector2Int(4, 4), new[] { new Vector2Int(0, 2), new Vector2Int(2, 1), new Vector2Int(4, 2), new Vector2Int(2, 3) }, new[] { new Vector2Int(0, 1), new Vector2Int(4, 0), new Vector2Int(1, 3), new Vector2Int(3, 4), new Vector2Int(4, 3) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 4), Vector2Int.left), CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 1), Vector2Int.down) }, 11),
-            CreateStageTemplate(5, new Vector2Int(0, 0), new Vector2Int(3, 4), new[] { new Vector2Int(1, 1), new Vector2Int(2, 1), new Vector2Int(4, 1), new Vector2Int(0, 3), new Vector2Int(3, 2) }, new[] { new Vector2Int(4, 0), new Vector2Int(1, 2), new Vector2Int(2, 4), new Vector2Int(3, 0), new Vector2Int(4, 3), new Vector2Int(0, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 2), Vector2Int.up) }, 11),
-            CreateStageTemplate(5, new Vector2Int(1, 1), new Vector2Int(4, 4), new[] { new Vector2Int(0, 2), new Vector2Int(1, 3), new Vector2Int(3, 1), new Vector2Int(4, 2) }, new[] { new Vector2Int(0, 0), new Vector2Int(2, 0), new Vector2Int(4, 0), new Vector2Int(1, 4), new Vector2Int(2, 4), new Vector2Int(0, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 1), Vector2Int.down), CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 4), Vector2Int.left) }, 12),
-            CreateStageTemplate(5, new Vector2Int(0, 2), new Vector2Int(4, 1), new[] { new Vector2Int(1, 1), new Vector2Int(2, 2), new Vector2Int(3, 3), new Vector2Int(1, 4) }, new[] { new Vector2Int(0, 4), new Vector2Int(2, 0), new Vector2Int(4, 0), new Vector2Int(3, 1), new Vector2Int(4, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 4), Vector2Int.left) }, 11),
-            CreateStageTemplate(5, new Vector2Int(1, 0), new Vector2Int(3, 4), new[] { new Vector2Int(0, 2), new Vector2Int(1, 2), new Vector2Int(3, 1), new Vector2Int(4, 3), new Vector2Int(2, 3) }, new[] { new Vector2Int(0, 1), new Vector2Int(2, 0), new Vector2Int(4, 1), new Vector2Int(1, 4), new Vector2Int(3, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 2), Vector2Int.down), CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 0), Vector2Int.left) }, 12),
-            CreateStageTemplate(5, new Vector2Int(0, 0), new Vector2Int(4, 3), new[] { new Vector2Int(1, 2), new Vector2Int(2, 1), new Vector2Int(3, 2), new Vector2Int(2, 4) }, new[] { new Vector2Int(1, 0), new Vector2Int(4, 0), new Vector2Int(0, 3), new Vector2Int(3, 4), new Vector2Int(4, 2), new Vector2Int(0, 4) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 3), Vector2Int.left) }, 11),
-            CreateStageTemplate(5, new Vector2Int(1, 1), new Vector2Int(4, 4), new[] { new Vector2Int(0, 3), new Vector2Int(2, 2), new Vector2Int(3, 1), new Vector2Int(4, 2), new Vector2Int(1, 4) }, new[] { new Vector2Int(0, 0), new Vector2Int(2, 0), new Vector2Int(3, 3), new Vector2Int(4, 0), new Vector2Int(0, 2) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 1), Vector2Int.down), CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 4), Vector2Int.left) }, 12),
-            CreateStageTemplate(5, new Vector2Int(0, 1), new Vector2Int(3, 4), new[] { new Vector2Int(1, 0), new Vector2Int(2, 2), new Vector2Int(4, 2), new Vector2Int(1, 3) }, new[] { new Vector2Int(0, 4), new Vector2Int(2, 0), new Vector2Int(3, 1), new Vector2Int(4, 4), new Vector2Int(1, 4), new Vector2Int(4, 0) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(3, 2), Vector2Int.down) }, 11),
-            CreateStageTemplate(5, new Vector2Int(2, 0), new Vector2Int(4, 4), new[] { new Vector2Int(0, 2), new Vector2Int(1, 3), new Vector2Int(3, 2), new Vector2Int(4, 1), new Vector2Int(2, 3) }, new[] { new Vector2Int(0, 1), new Vector2Int(1, 0), new Vector2Int(4, 0), new Vector2Int(3, 4), new Vector2Int(4, 3) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(2, 4), Vector2Int.left), CreateEnemy(EnemyType.Orthogonal, new Vector2Int(0, 4), Vector2Int.right) }, 12),
-            CreateStageTemplate(5, new Vector2Int(0, 0), new Vector2Int(4, 2), new[] { new Vector2Int(1, 1), new Vector2Int(2, 3), new Vector2Int(3, 1), new Vector2Int(1, 4) }, new[] { new Vector2Int(2, 0), new Vector2Int(4, 0), new Vector2Int(0, 3), new Vector2Int(3, 4), new Vector2Int(4, 4), new Vector2Int(1, 2) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 1), Vector2Int.down) }, 11)
-        };
-    }
-
-    private static StageData CreateStageTemplate(int size, Vector2Int player, Vector2Int goal, Vector2Int[] walls, Vector2Int[] boxes, EnemyData[] enemies, int targetMoves)
-    {
-        StageData data = new StageData();
-        data.width = size;
-        data.height = size;
-        data.playerStart = player;
-        data.goalPosition = goal;
-        data.targetMoveCount = targetMoves;
-
-        if (walls != null)
-        {
-            data.wallPositions.AddRange(walls);
-        }
-
-        if (boxes != null)
-        {
-            data.boxPositions.AddRange(boxes);
-        }
-
-        if (enemies != null)
-        {
-            data.enemies.AddRange(enemies);
         }
 
         return data;
     }
 
-    private static EnemyData CreateEnemy(EnemyType type, Vector2Int start, Vector2Int direction)
-    {
-        return new EnemyData
-        {
-            type = type,
-            startPosition = start,
-            moveDirection = direction
-        };
-    }
-
-    private static StageData EnsurePlayable(StageData source)
+    private static StageData FinalizeStage(StageData source)
     {
         StageData candidate = CloneStageData(source);
         Normalize(candidate);
-        if (IsPlayable(candidate))
+        if (HasRequiredActors(candidate))
         {
             return candidate;
         }
@@ -223,6 +98,12 @@ public static class StageCatalog
         StageData fallback = CreateFallbackStage(candidate.width);
         fallback.stageId = source.stageId;
         return fallback;
+    }
+
+    private static bool HasRequiredActors(StageData stage)
+    {
+        return InBounds(stage.playerStart, stage.width, stage.height) &&
+               InBounds(stage.goalPosition, stage.width, stage.height);
     }
 
     private static void Normalize(StageData stage)
@@ -267,99 +148,192 @@ public static class StageCatalog
         return result;
     }
 
-    private static bool IsPlayable(StageData stage)
-    {
-        if (!InBounds(stage.playerStart, stage.width, stage.height) || !InBounds(stage.goalPosition, stage.width, stage.height))
-        {
-            return false;
-        }
-
-        HashSet<Vector2Int> blocked = new HashSet<Vector2Int>(stage.wallPositions);
-        foreach (Vector2Int box in stage.boxPositions)
-        {
-            blocked.Add(box);
-        }
-        foreach (EnemyData enemy in stage.enemies)
-        {
-            blocked.Add(enemy.startPosition);
-        }
-
-        Queue<Vector2Int> queue = new Queue<Vector2Int>();
-        HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
-        queue.Enqueue(stage.playerStart);
-        visited.Add(stage.playerStart);
-
-        while (queue.Count > 0)
-        {
-            Vector2Int current = queue.Dequeue();
-            if (current == stage.goalPosition)
-            {
-                return true;
-            }
-
-            foreach (Vector2Int direction in Directions)
-            {
-                Vector2Int end = Slide(current, direction, stage.width, stage.height, blocked, stage.goalPosition);
-                if (visited.Add(end))
-                {
-                    queue.Enqueue(end);
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private static Vector2Int Slide(Vector2Int start, Vector2Int direction, int width, int height, HashSet<Vector2Int> blocked, Vector2Int goal)
-    {
-        Vector2Int current = start;
-        while (true)
-        {
-            Vector2Int next = current + direction;
-            if (!InBounds(next, width, height))
-            {
-                return current;
-            }
-
-            if (next == goal)
-            {
-                return next;
-            }
-
-            if (blocked.Contains(next))
-            {
-                return current;
-            }
-
-            current = next;
-        }
-    }
-
     private static bool InBounds(Vector2Int cell, int width, int height)
     {
         return cell.x >= 0 && cell.x < width && cell.y >= 0 && cell.y < height;
+    }
+
+    private static StageData CloneStageData(StageData source)
+    {
+        StageData clone = new StageData
+        {
+            stageId = source.stageId,
+            width = source.width,
+            height = source.height,
+            seed = source.seed,
+            playerStart = source.playerStart,
+            goalPosition = source.goalPosition,
+            targetMoveCount = source.targetMoveCount
+        };
+
+        clone.wallPositions.AddRange(source.wallPositions);
+        clone.boxPositions.AddRange(source.boxPositions);
+
+        foreach (EnemyData enemy in source.enemies)
+        {
+            clone.enemies.Add(new EnemyData
+            {
+                type = enemy.type,
+                startPosition = enemy.startPosition,
+                moveDirection = enemy.moveDirection
+            });
+        }
+
+        return clone;
     }
 
     private static StageData CreateFallbackStage(int size)
     {
         if (size <= 3)
         {
-            return CreateStageTemplate(3, new Vector2Int(0, 0), new Vector2Int(2, 2), null, new[] { new Vector2Int(2, 0) }, null, 4);
+            return BuildStage(Stage(4, "003", "020", "400"), 1);
         }
 
         if (size == 4)
         {
-            return CreateStageTemplate(4, new Vector2Int(0, 0), new Vector2Int(3, 3), new[] { new Vector2Int(1, 1), new Vector2Int(2, 1) }, new[] { new Vector2Int(3, 0), new Vector2Int(0, 2), new Vector2Int(2, 3) }, null, 7);
+            return BuildStage(Stage(7, "0003", "0020", "0100", "4000"), 1);
         }
 
-        return CreateStageTemplate(5, new Vector2Int(0, 0), new Vector2Int(4, 4), new[] { new Vector2Int(1, 1), new Vector2Int(3, 1) }, new[] { new Vector2Int(4, 0), new Vector2Int(0, 3), new Vector2Int(3, 4), new Vector2Int(2, 0) }, new[] { CreateEnemy(EnemyType.Orthogonal, new Vector2Int(4, 2), Vector2Int.left) }, 10);
+        return BuildStage(Stage(10, "00030", "00100", "00020", "01000", "40000"), 1);
     }
 
-    private static readonly Vector2Int[] Directions =
+    private static StageDefinition Stage(int targetMoves, params string[] rows)
     {
-        Vector2Int.up,
-        Vector2Int.down,
-        Vector2Int.left,
-        Vector2Int.right
-    };
+        return new StageDefinition
+        {
+            targetMoves = targetMoves,
+            rows = rows,
+            enemies = null
+        };
+    }
+
+    private static StageDefinition Stage(int targetMoves, string[] rows, params EnemySpec[] enemies)
+    {
+        return new StageDefinition
+        {
+            targetMoves = targetMoves,
+            rows = rows,
+            enemies = enemies
+        };
+    }
+
+    private static EnemySpec CreateEnemy(int x, int y, Vector2Int direction, EnemyType type = EnemyType.Orthogonal)
+    {
+        return new EnemySpec
+        {
+            cell = new Vector2Int(x, y),
+            moveDirection = direction,
+            type = type
+        };
+    }
+
+    private static List<StageDefinition> CreateDefinitions()
+    {
+        return new List<StageDefinition>
+        {
+            // Stage 1
+            Stage(3, "003", "000", "400"),
+            // Stage 2
+            Stage(4, "010", "003", "400"),
+            // Stage 3
+            Stage(4, "300", "001", "400"),
+            // Stage 4
+            Stage(5, "003", "020", "400"),
+            // Stage 5
+            Stage(5, "030", "002", "401"),
+            // Stage 6
+            Stage(6, "103", "020", "401"),
+
+            // Stage 7
+            Stage(5, "0003", "0010", "0000", "4000"),
+            // Stage 8
+            Stage(5, "0300", "0001", "0000", "4010"),
+            // Stage 9
+            Stage(6, "0030", "0100", "0001", "4000"),
+            // Stage 10
+            Stage(6, "0003", "0020", "0100", "4000"),
+            // Stage 11
+            Stage(7, "0000", "2030", "0100", "4000"),
+            // Stage 12
+            Stage(7, "0003", "0100", "0020", "4001"),
+            // Stage 13
+            Stage(7, "0030", "1100", "0200", "4001"),
+            // Stage 14
+            Stage(8, "0003", "0120", "0001", "4000"),
+            // Stage 15
+            Stage(8, "0300", "0012", "0100", "4001"),
+            // Stage 16
+            Stage(8, new[] { "0003", "0510", "0100", "4000" }, CreateEnemy(1, 2, Vector2Int.left)),
+            // Stage 17
+            Stage(8, new[] { "0300", "0010", "5000", "4020" }, CreateEnemy(0, 1, Vector2Int.right)),
+            // Stage 18
+            Stage(9, new[] { "0003", "0105", "0200", "4010" }, CreateEnemy(3, 2, Vector2Int.down)),
+            // Stage 19
+            Stage(9, "0030", "0200", "0012", "4001"),
+            // Stage 20
+            Stage(10, "0300", "0021", "0102", "4000"),
+
+            // Stage 21
+            Stage(7, "00030", "00100", "00020", "01000", "40000"),
+            // Stage 22
+            Stage(7, "03000", "00010", "00200", "00001", "40000"),
+            // Stage 23
+            Stage(8, "00003", "01000", "02010", "00000", "40100"),
+            // Stage 24
+            Stage(8, "00300", "01100", "00020", "01000", "40001"),
+            // Stage 25
+            Stage(8, "00030", "01010", "02000", "00100", "40001"),
+            // Stage 26
+            Stage(9, "00000", "00120", "01300", "00010", "42000"),
+            // Stage 27
+            Stage(9, "00003", "02010", "00100", "01000", "40010"),
+            // Stage 28
+            Stage(9, new[] { "00300", "01050", "00000", "02010", "40000" }, CreateEnemy(3, 3, Vector2Int.left)),
+            // Stage 29
+            Stage(9, new[] { "03000", "00100", "50010", "02000", "40001" }, CreateEnemy(0, 2, Vector2Int.right)),
+            // Stage 30
+            Stage(10, new[] { "00003", "01000", "00150", "02010", "40000" }, CreateEnemy(3, 2, Vector2Int.up)),
+            // Stage 31
+            Stage(10, new[] { "00300", "00010", "02100", "00005", "41000" }, CreateEnemy(4, 1, Vector2Int.left)),
+            // Stage 32
+            Stage(10, "00030", "01200", "00020", "00100", "42001"),
+            // Stage 33
+            Stage(11, "03000", "00012", "01000", "00200", "40010"),
+            // Stage 34
+            Stage(11, "00300", "02010", "00120", "00000", "41000"),
+            // Stage 35
+            Stage(11, "00003", "01020", "00010", "00200", "40001"),
+            // Stage 36
+            Stage(12, "03000", "00100", "02001", "01020", "40000"),
+            // Stage 37
+            Stage(12, new[] { "00300", "01050", "02000", "00120", "40000" }, CreateEnemy(3, 3, Vector2Int.left)),
+            // Stage 38
+            Stage(12, new[] { "03000", "00100", "02060", "00010", "40002" }, CreateEnemy(3, 2, new Vector2Int(-1, -1), EnemyType.Diagonal)),
+            // Stage 39
+            Stage(12, new[] { "00003", "01200", "05010", "00020", "40000" }, CreateEnemy(1, 2, Vector2Int.right)),
+            // Stage 40
+            Stage(13, new[] { "00300", "00010", "02060", "00100", "41020" }, CreateEnemy(3, 2, new Vector2Int(-1, 1), EnemyType.Diagonal)),
+            // Stage 41
+            Stage(13, new[] { "03000", "01020", "00050", "00200", "40001" }, CreateEnemy(3, 2, Vector2Int.left)),
+            // Stage 42
+            Stage(13, new[] { "00003", "00120", "02010", "06000", "40010" }, CreateEnemy(0, 1, new Vector2Int(1, 1), EnemyType.Diagonal)),
+
+            // Stage 43
+            Stage(14, new[] { "00300", "01020", "05010", "00020", "40001" }, CreateEnemy(1, 2, Vector2Int.right)),
+            // Stage 44
+            Stage(14, new[] { "00030", "02100", "00150", "00020", "41000" }, CreateEnemy(3, 2, Vector2Int.up)),
+            // Stage 45
+            Stage(15, new[] { "03000", "00210", "05000", "00120", "40001" }, CreateEnemy(1, 2, Vector2Int.right)),
+            // Stage 46
+            Stage(15, new[] { "00300", "01060", "02000", "00120", "40001" }, CreateEnemy(3, 3, new Vector2Int(-1, -1), EnemyType.Diagonal)),
+            // Stage 47
+            Stage(15, new[] { "00003", "02010", "00150", "01020", "40000" }, CreateEnemy(3, 2, Vector2Int.left)),
+            // Stage 48
+            Stage(16, new[] { "03000", "00120", "06010", "02000", "40001" }, CreateEnemy(1, 2, new Vector2Int(1, 1), EnemyType.Diagonal)),
+            // Stage 49
+            Stage(16, new[] { "00300", "01020", "00050", "02100", "40001" }, CreateEnemy(3, 2, Vector2Int.down)),
+            // Stage 50
+            Stage(17, new[] { "00003", "01200", "05020", "00100", "42001" }, CreateEnemy(1, 2, Vector2Int.right))
+        };
+    }
 }

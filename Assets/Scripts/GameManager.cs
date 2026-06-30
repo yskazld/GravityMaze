@@ -12,6 +12,7 @@ public class GameManager : MonoBehaviour
 
     public StageGenerator stageGenerator;
     public ClearUIController clearUI;
+    public GravityViewController gravityView;
 
     private bool isBusy = false;
 
@@ -32,14 +33,34 @@ public class GameManager : MonoBehaviour
         {
             clearUI = FindObjectOfType<ClearUIController>(true);
         }
+        if (gravityView == null)
+        {
+            gravityView = FindObjectOfType<GravityViewController>();
+        }
+        if (gravityView == null)
+        {
+            gravityView = new GameObject("GravityViewController").AddComponent<GravityViewController>();
+        }
+
+        if (gravityView != null)
+        {
+            if (gravityView.grid == null) gravityView.grid = grid;
+            if (gravityView.stageGenerator == null) gravityView.stageGenerator = stageGenerator;
+        }
 
         Debug.Log($"GameManager start: player={(player!=null)}, boxes={boxes.Count}, enemies={enemies.Count}, grid={(grid!=null)}, stageGenerator={(stageGenerator!=null)}");
     }
 
-    public void MoveUp() => TryMove(Vector2Int.up);
-    public void MoveDown() => TryMove(Vector2Int.down);
-    public void MoveLeft() => TryMove(Vector2Int.left);
-    public void MoveRight() => TryMove(Vector2Int.right);
+    public void MoveUp() => TryMoveRelative(Vector2Int.up);
+    public void MoveDown() => TryMoveRelative(Vector2Int.down);
+    public void MoveLeft() => TryMoveRelative(Vector2Int.left);
+    public void MoveRight() => TryMoveRelative(Vector2Int.right);
+
+    private void TryMoveRelative(Vector2Int inputDir)
+    {
+        Vector2Int worldDir = gravityView != null ? gravityView.ResolveMoveDirection(inputDir) : inputDir;
+        TryMove(worldDir);
+    }
 
     public void TryMove(Vector2Int dir)
     {
@@ -54,6 +75,11 @@ public class GameManager : MonoBehaviour
         {
             boxes = new List<BoxController>(FindObjectsOfType<BoxController>());
             enemies = new List<EnemyController>(FindObjectsOfType<EnemyController>());
+
+            if (gravityView != null)
+            {
+                yield return StartCoroutine(gravityView.RotateForGravity(dir));
+            }
 
             if (player != null)
             {
