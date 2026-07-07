@@ -13,6 +13,12 @@ public class GameManager : MonoBehaviour
     public StageGenerator stageGenerator;
     public ClearUIController clearUI;
     public GravityViewController gravityView;
+    public StageIntroController stageIntro;
+    public MoveCounterUI moveCounterUI;
+    public bool inputLocked;
+    public int moveCount { get; private set; }
+
+    public System.Action<int> OnMoveCountChanged;
 
     private bool isBusy = false;
 
@@ -41,6 +47,22 @@ public class GameManager : MonoBehaviour
         {
             gravityView = new GameObject("GravityViewController").AddComponent<GravityViewController>();
         }
+        if (stageIntro == null)
+        {
+            stageIntro = FindObjectOfType<StageIntroController>();
+        }
+        if (stageIntro == null)
+        {
+            stageIntro = new GameObject("StageIntroController").AddComponent<StageIntroController>();
+        }
+        if (moveCounterUI == null)
+        {
+            moveCounterUI = FindObjectOfType<MoveCounterUI>();
+        }
+        if (moveCounterUI == null)
+        {
+            moveCounterUI = new GameObject("MoveCounterUI").AddComponent<MoveCounterUI>();
+        }
 
         if (gravityView != null)
         {
@@ -49,6 +71,7 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log($"GameManager start: player={(player!=null)}, boxes={boxes.Count}, enemies={enemies.Count}, grid={(grid!=null)}, stageGenerator={(stageGenerator!=null)}");
+        ResetMoveCount();
     }
 
     public void MoveUp() => TryMoveRelative(Vector2Int.up);
@@ -64,7 +87,7 @@ public class GameManager : MonoBehaviour
 
     public void TryMove(Vector2Int dir)
     {
-        if (isBusy || player == null) return;
+        if (isBusy || inputLocked || player == null) return;
         StartCoroutine(MoveSequence(dir));
     }
 
@@ -73,6 +96,9 @@ public class GameManager : MonoBehaviour
         isBusy = true;
         try
         {
+            moveCount++;
+            OnMoveCountChanged?.Invoke(moveCount);
+
             boxes = new List<BoxController>(FindObjectsOfType<BoxController>());
             enemies = new List<EnemyController>(FindObjectsOfType<EnemyController>());
 
@@ -119,6 +145,12 @@ public class GameManager : MonoBehaviour
         {
             isBusy = false;
         }
+    }
+
+    private void ResetMoveCount()
+    {
+        moveCount = 0;
+        OnMoveCountChanged?.Invoke(moveCount);
     }
 
     private IEnumerable<BoxController> GetBoxesInMoveOrder(Vector2Int dir)
