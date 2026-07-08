@@ -37,7 +37,7 @@ public class GenerateGameSceneEditor
         var playerComp = playerGO.AddComponent<PlayerController>();
         playerComp.cell = new UnityEngine.Vector2Int(0, 0);
         playerGO.tag = "Player";
-        playerGO.transform.localScale = new Vector3(0.7f, 0.9f, 0.7f);
+        playerGO.transform.localScale = new Vector3(2f, 2f, 2f);
         ApplyMaterial(playerGO, "PlayerBlue", new Color(0.1f, 0.35f, 0.9f));
         var playerPrefabPath = Path.Combine(prefPath, "PlayerPrefab.prefab");
         PrefabUtility.SaveAsPrefabAsset(playerGO, playerPrefabPath);
@@ -79,7 +79,24 @@ public class GenerateGameSceneEditor
         enemyGO.name = "EnemyPrefab";
         var enemyComp = enemyGO.AddComponent<EnemyController>();
         enemyGO.tag = "Enemy";
-        ApplyMaterial(enemyGO, "EnemyRed", new Color(0.9f, 0.15f, 0.15f));
+        var enemyVisualPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Low-Poly_Objects_Pack/Prefabs/URP/soccer_boot.prefab");
+        if (enemyVisualPrefab != null)
+        {
+            var enemyVisualFilter = enemyVisualPrefab.GetComponentInChildren<MeshFilter>();
+            var enemyVisualRenderer = enemyVisualPrefab.GetComponentInChildren<MeshRenderer>();
+            if (enemyVisualFilter != null)
+            {
+                enemyGO.GetComponent<MeshFilter>().sharedMesh = enemyVisualFilter.sharedMesh;
+            }
+            if (enemyVisualRenderer != null && enemyVisualRenderer.sharedMaterial != null)
+            {
+                enemyGO.GetComponent<MeshRenderer>().sharedMaterial = enemyVisualRenderer.sharedMaterial;
+            }
+        }
+        else
+        {
+            ApplyMaterial(enemyGO, "EnemyRed", new Color(0.9f, 0.15f, 0.15f));
+        }
         var enemyPrefabPath = Path.Combine(prefPath, "EnemyPrefab.prefab");
         PrefabUtility.SaveAsPrefabAsset(enemyGO, enemyPrefabPath);
         Object.DestroyImmediate(enemyGO);
@@ -88,7 +105,7 @@ public class GenerateGameSceneEditor
         var goalGO = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         goalGO.name = "GoalPrefab";
         goalGO.tag = "Goal";
-        goalGO.transform.localScale = new Vector3(0.8f, 0.15f, 0.8f);
+        goalGO.transform.localScale = new Vector3(2f, 2f, 2f);
         ApplyMaterial(goalGO, "GoalGreen", new Color(0.2f, 0.8f, 0.25f));
         var goalPrefabPath = Path.Combine(prefPath, "GoalPrefab.prefab");
         PrefabUtility.SaveAsPrefabAsset(goalGO, goalPrefabPath);

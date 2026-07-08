@@ -14,7 +14,7 @@ public class StageGenerator : MonoBehaviour
     public GameObject goalPrefab;
 
     public StageData stageData;
-    private const float BoundaryWallHeight = 0.5f;
+    private const float BoundaryWallHeight = 1f;
     private const int BaseStageSize = 3;
 
     [Header("Camera Setup")]
@@ -156,7 +156,7 @@ public class StageGenerator : MonoBehaviour
         var wall = Instantiate(GetBoundaryWallPrefab(), grid.CellToWorld(cell), Quaternion.identity, transform);
         wall.name = $"BoundaryWall_{cell.x}_{cell.y}";
         wall.tag = "Wall";
-        wall.transform.localScale = new Vector3(1f, BoundaryWallHeight, 1f);
+        wall.transform.localScale = new Vector3(2f, 2f, 2f);
     }
 
     private GameObject GetInsideWallPrefab()
