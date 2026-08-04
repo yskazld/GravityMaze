@@ -42,4 +42,15 @@ public class ClearUIController : MonoBehaviour
     {
         SceneManager.LoadScene(mainSceneName);
     }
+
+    public void GoToNextStage()
+    {
+        int nextStageId = StageSelectionManager.GetSelectedStage() + 1;
+        if (nextStageId > StageSelectionManager.StageCount)
+        {
+            return;
+        }
+
+        StageSelectionManager.LoadStage(nextStageId);
+    }
 }
